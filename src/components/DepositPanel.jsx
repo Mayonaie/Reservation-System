@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { PayPalButtons } from '@paypal/react-paypal-js';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:4000';
+// Prefer explicit env; otherwise use localhost in dev and same-origin in prod
+const API_BASE = process.env.REACT_APP_API_BASE || (
+  typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost'
+    ? 'http://localhost:4000'
+    : ''
+);
 
 export default function DepositPanel({ open, reservation, deposit, total, onClose, onSuccess }) {
   const [showPay, setShowPay] = useState(false);
@@ -38,15 +43,23 @@ export default function DepositPanel({ open, reservation, deposit, total, onClos
             <PayPalButtons
               style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'paypal' }}
               createOrder={async () => {
-                const res = await fetch(`${API_BASE}/api/paypal/create-order`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    amount: Number(deposit || 0).toFixed(2),
-                    description: `Deposit for reservation ${reservation?.id}`,
-                    currency: 'USD'
-                  }),
-                });
+                let res;
+                try {
+                  res = await fetch(`${API_BASE}/api/paypal/create-order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      amount: Number(deposit || 0).toFixed(2),
+                      description: `Deposit for reservation ${reservation?.id}`,
+                      currency: 'USD'
+                    }),
+                    credentials: 'omit',
+                  });
+                } catch (networkErr) {
+                  console.error('create-order network error:', networkErr);
+                  alert('Could not reach payment server. Please check API base URL.');
+                  throw networkErr;
+                }
                 // src/components/DepositPanel.jsx (inside createOrder)
                 if (!res.ok) {
                   const txt = await res.text();
@@ -63,11 +76,19 @@ export default function DepositPanel({ open, reservation, deposit, total, onClos
                 return data.id;
               }}
               onApprove={async (data, actions) => {
-                const res = await fetch(`${API_BASE}/api/paypal/capture-order`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ orderID: data.orderID }),
-                });
+                let res;
+                try {
+                  res = await fetch(`${API_BASE}/api/paypal/capture-order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderID: data.orderID }),
+                    credentials: 'omit',
+                  });
+                } catch (networkErr) {
+                  console.error('capture network error:', networkErr);
+                  alert('Could not reach payment server to capture payment.');
+                  throw networkErr;
+                }
                 // src/components/DepositPanel.jsx (inside onApprove after capture fetch)
                 if (!res.ok) {
                   const txt = await res.text();
